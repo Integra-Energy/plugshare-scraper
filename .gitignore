@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+workbook-data.json
+state-workbook-summary-preview.png
+north-america-scan.log
+*.csv
+*.xlsx
