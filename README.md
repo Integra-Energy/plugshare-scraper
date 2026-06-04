@@ -59,6 +59,22 @@ python .\filter_unavailable_maintenance.py `
   .\north-america-unavailable-maintenance-by-state-province.csv
 ```
 
+Build a sales-friendly ranked call list after phone enrichment:
+
+```powershell
+python .\rank_plugshare_sales_leads.py `
+  --input .\ny-out-of-order-unavailable-chargers-google-maps-phones.csv `
+  --state-filter NY `
+  --output-xlsx .\ny-ranked-sales-call-list.xlsx `
+  --output-csv .\ny-ranked-sales-call-list.csv
+```
+
+The ranked workbook has a summary tab, a one-row-per-location call list sorted by
+score, raw charger rows for auditing, and scoring notes. The score adapts the
+WAIRE cherry-picker's pain + ICP credibility approach: broken charger severity,
+affected ports, charger speed, Integra customer-fit segment, and whether a phone
+number was found.
+
 The browser window is intentional. As of June 2, 2026, PlugShare rejects regional
 map requests from Playwright's headless Chromium while allowing the same anonymous
 requests in a visible Chromium window.
