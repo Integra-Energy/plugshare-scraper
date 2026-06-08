@@ -62,12 +62,22 @@ python .\filter_unavailable_maintenance.py `
 Build a sales-friendly ranked call list after phone enrichment:
 
 ```powershell
+python .\enrich_google_maps_phones.py `
+  --state NY `
+  --input .\north-america-all-chargers-by-state-province.csv `
+  --cache .\ny-google-maps-phone-cache.json `
+  --output-xlsx .\ny-out-of-order-unavailable-chargers-google-maps-phones.xlsx `
+  --output-csv .\ny-out-of-order-unavailable-chargers-google-maps-phones.csv
+
 python .\rank_plugshare_sales_leads.py `
   --input .\ny-out-of-order-unavailable-chargers-google-maps-phones.csv `
   --state-filter NY `
   --output-xlsx .\ny-ranked-sales-call-list.xlsx `
   --output-csv .\ny-ranked-sales-call-list.csv
 ```
+
+Use the same pattern for other states by changing the state code and filenames
+(`MA`, `NJ`, etc.).
 
 The ranked workbook has a summary tab, a one-row-per-location call list sorted by
 score, raw charger rows for auditing, and scoring notes. The score adapts the

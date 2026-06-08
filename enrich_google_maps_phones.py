@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enrich NY unavailable charger rows with Google Maps phone numbers.
+"""Enrich unavailable charger rows with Google Maps phone numbers.
 
 This drives a visible Google Maps browser session and searches by PlugShare
 business name + address. Results are cached by location_id so interrupted runs can
@@ -33,6 +33,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("north-america-all-chargers-by-state-province.csv"),
     )
+    parser.add_argument("--state", default="NY", help="State/province code to enrich, e.g. NY, MA, NJ.")
     parser.add_argument(
         "--output-xlsx",
         type=Path,
@@ -54,13 +55,13 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_rows(path: Path) -> tuple[list[str], list[dict[str, str]]]:
+def load_rows(path: Path, state: str) -> tuple[list[str], list[dict[str, str]]]:
     rows: list[dict[str, str]] = []
     with path.open(encoding="utf-8-sig", newline="") as source:
         reader = csv.DictReader(source)
         headers = reader.fieldnames or []
         for row in reader:
-            if row.get("state_or_province") == "NY" and row.get("status") in TARGET_STATUSES:
+            if row.get("state_or_province") == state and row.get("status") in TARGET_STATUSES:
                 rows.append(row)
     return headers, rows
 
@@ -125,6 +126,7 @@ def query_google_maps(
     delay: float,
     wait_ms: int,
     limit: int | None,
+    cache_path: Path,
 ) -> None:
     pending = [location for location in locations if location["location_id"] not in cache]
     if limit is not None:
@@ -158,12 +160,12 @@ def query_google_maps(
             cache[location_id] = result
             if index % 10 == 0 or index == len(pending):
                 print(f"Queried {index}/{len(pending)}; phones found: {sum(1 for value in cache.values() if value.get('phone_number'))}")
-                save_cache(Path("ny-google-maps-phone-cache.json"), cache)
+                save_cache(cache_path, cache)
             time.sleep(delay)
         browser.close()
 
 
-def write_outputs(headers: list[str], rows: list[dict[str, str]], cache: dict[str, dict[str, str]], output_csv: Path, output_xlsx: Path) -> None:
+def write_outputs(headers: list[str], rows: list[dict[str, str]], cache: dict[str, dict[str, str]], output_csv: Path, output_xlsx: Path, state: str) -> None:
     output_headers = headers[:]
     insert_after = output_headers.index("address") + 1
     for column in ["phone_number", "phone_e164", "phone_source", "google_maps_url"]:
@@ -200,7 +202,7 @@ def write_outputs(headers: list[str], rows: list[dict[str, str]], cache: dict[st
     rows_with_phone = sum(1 for row in rows if row.get("phone_number"))
     summary_rows = [
         ["Metric", "Value"],
-        ["State", "NY"],
+        ["State", state],
         ["Included statuses", ", ".join(sorted(TARGET_STATUSES))],
         ["Total charger outlet rows", len(rows)],
         ["Unique affected locations", len({row["location_id"] for row in rows})],
@@ -244,12 +246,13 @@ def write_outputs(headers: list[str], rows: list[dict[str, str]], cache: dict[st
 
 def main() -> int:
     args = parse_args()
-    headers, rows = load_rows(args.input)
+    state = args.state.upper()
+    headers, rows = load_rows(args.input, state)
     cache = load_cache(args.cache)
     locations = unique_locations(rows)
-    query_google_maps(locations, cache, args.delay, args.wait_ms, args.limit)
+    query_google_maps(locations, cache, args.delay, args.wait_ms, args.limit, args.cache)
     save_cache(args.cache, cache)
-    write_outputs(headers, rows, cache, args.output_csv, args.output_xlsx)
+    write_outputs(headers, rows, cache, args.output_csv, args.output_xlsx, state)
     return 0
 
 

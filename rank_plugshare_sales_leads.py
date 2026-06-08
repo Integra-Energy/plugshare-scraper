@@ -27,6 +27,8 @@ from openpyxl.utils import get_column_letter
 TARGET_STATUSES = {"OUTOFORDER", "UNDER_REPAIR", "UNAVAILABLE"}
 
 US_ZIP_RANGES = {
+    "MA": (1000, 2799),
+    "NJ": (7000, 8999),
     "NY": (10000, 14999),
 }
 
@@ -179,6 +181,9 @@ def parse_city_zip(address: str) -> tuple[str, str]:
         tail = re.sub(r"\b[A-Z]{2}\b", "", parts[-1])
         tail = re.sub(r"\b\d{5}(?:-\d{4})?\b", "", tail).strip()
         city = tail
+    city = re.sub(r"\b[A-Z]{2}\b", "", city)
+    city = re.sub(r"\b\d{5}(?:-\d{4})?\b", "", city)
+    city = re.sub(r"\s+", " ", city).strip(" ,")
     return city, zip_code
 
 
