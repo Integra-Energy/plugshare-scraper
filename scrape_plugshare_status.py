@@ -87,7 +87,11 @@ ROW_FIELDS = (
     "latitude",
     "longitude",
     "location_under_repair",
+    "majority_network_id",
+    "majority_network_name",
     "station_id",
+    "network_id",
+    "network_name",
     "outlet_id",
     "connector",
     "status",
@@ -200,19 +204,55 @@ def fetch_region(
             "spanLng": span_longitude,
         }
     )
-    result = page.evaluate(
-        """async ({url, authorization}) => {
-            const response = await fetch(url, {
-                headers: { authorization, accept: "application/json" }
-            });
-            if (!response.ok) throw new Error(`PlugShare HTTP ${response.status}`);
-            return await response.json();
-        }""",
-        {"url": f"{API_URL}?{query}", "authorization": authorization},
-    )
+    url = f"{API_URL}?{query}"
+    last_error: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            result = page.evaluate(
+                """async ({url, authorization}) => {
+                    const response = await fetch(url, {
+                        headers: { authorization, accept: "application/json" }
+                    });
+                    if (!response.ok) throw new Error(`PlugShare HTTP ${response.status}`);
+                    return await response.json();
+                }""",
+                {"url": url, "authorization": authorization},
+            )
+            break
+        except Exception as exc:
+            last_error = exc
+            if attempt == 3:
+                raise
+            wait_seconds = attempt * 2
+            print(f"Warning: regional fetch failed on attempt {attempt}; retrying in {wait_seconds}s")
+            page.wait_for_timeout(wait_seconds * 1000)
+    else:
+        raise RuntimeError("PlugShare regional fetch failed.") from last_error
     if not isinstance(result, list):
         raise RuntimeError("PlugShare returned an unexpected regional response shape.")
     return result
+
+
+def fetch_networks(page: Page, authorization: str) -> dict[int, str]:
+    result = page.evaluate(
+        """async ({authorization}) => {
+            const response = await fetch("https://api.plugshare.com/v3/networks", {
+                headers: { authorization, accept: "application/json" }
+            });
+            if (!response.ok) throw new Error(`PlugShare networks HTTP ${response.status}`);
+            return await response.json();
+        }""",
+        {"authorization": authorization},
+    )
+    if not isinstance(result, list):
+        raise RuntimeError("PlugShare returned an unexpected networks response shape.")
+    networks: dict[int, str] = {}
+    for network in result:
+        network_id = network.get("id")
+        name = network.get("name")
+        if network_id is not None and name:
+            networks[int(network_id)] = name
+    return networks
 
 
 def collect_locations(
@@ -269,7 +309,10 @@ def collect_locations(
 
 
 def matching_rows(
-    locations: dict[int, dict[str, Any]], statuses: set[str], all_statuses: bool
+    locations: dict[int, dict[str, Any]],
+    statuses: set[str],
+    all_statuses: bool,
+    networks: dict[int, str],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for location in locations.values():
@@ -280,9 +323,9 @@ def matching_rows(
                 if not all_statuses and status not in statuses:
                     continue
                 matched_outlet = True
-                rows.append(make_row(location, station.get("id"), outlet))
+                rows.append(make_row(location, station, outlet, networks))
         if not all_statuses and location.get("under_repair") and not matched_outlet:
-            rows.append(make_row(location, "", {"status": "UNDER_REPAIR"}))
+            rows.append(make_row(location, {}, {"status": "UNDER_REPAIR"}, networks))
     return sorted(
         rows,
         key=lambda row: (
@@ -323,7 +366,23 @@ def state_or_province(address: str) -> str:
     return ""
 
 
-def make_row(location: dict[str, Any], station_id: Any, outlet: dict[str, Any]) -> dict[str, Any]:
+def network_name(networks: dict[int, str], network_id: Any) -> str:
+    if network_id in ("", None):
+        return ""
+    try:
+        return networks.get(int(network_id), "")
+    except (TypeError, ValueError):
+        return ""
+
+
+def make_row(
+    location: dict[str, Any],
+    station: dict[str, Any],
+    outlet: dict[str, Any],
+    networks: dict[int, str],
+) -> dict[str, Any]:
+    station_network_id = station.get("network_id", "")
+    majority_network_id = location.get("majority_network_id", "")
     return {
         "location_id": location.get("id", ""),
         "name": location.get("name", ""),
@@ -332,7 +391,11 @@ def make_row(location: dict[str, Any], station_id: Any, outlet: dict[str, Any]) 
         "latitude": location.get("latitude", ""),
         "longitude": location.get("longitude", ""),
         "location_under_repair": location.get("under_repair", False),
-        "station_id": station_id,
+        "majority_network_id": majority_network_id,
+        "majority_network_name": network_name(networks, majority_network_id),
+        "station_id": station.get("id", ""),
+        "network_id": station_network_id,
+        "network_name": network_name(networks, station_network_id),
         "outlet_id": outlet.get("id", ""),
         "connector": outlet.get("connector", ""),
         "status": outlet.get("status", ""),
@@ -359,8 +422,10 @@ def main() -> int:
         browser = playwright.chromium.launch(headless=args.headless)
         page = browser.new_page(viewport={"width": 1600, "height": 1000})
         authorization = start_anonymous_map_session(page)
+        networks = fetch_networks(page, authorization)
+        print(f"Loaded {len(networks)} PlugShare networks.")
         locations = collect_locations(page, authorization, bounds, args.delay)
-        rows = matching_rows(locations, statuses, args.all_statuses)
+        rows = matching_rows(locations, statuses, args.all_statuses, networks)
         write_csv(args.output, rows)
         browser.close()
     print(f"Wrote {len(rows)} matching charger rows to {args.output.resolve()}")

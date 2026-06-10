@@ -39,6 +39,16 @@ The CSV is sorted by the `state_or_province` column. The resolver uses the addre
 abbreviation first, then Canadian postal-code prefixes and US ZIP-code ranges.
 Records without enough address information are grouped under `Unknown`.
 
+The scraper also writes PlugShare network fields when available:
+
+- `majority_network_id`
+- `majority_network_name`
+- `network_id`
+- `network_name`
+
+These fields are used by the lead-gen rescue pipeline to split ChargePoint
+locations from non-ChargePoint software-takeover candidates.
+
 The generated Excel workbook contains a summary tab and a separate sheet for each
 state, province, or unresolved-address bucket.
 

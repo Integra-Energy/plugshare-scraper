@@ -27,9 +27,16 @@ from openpyxl.utils import get_column_letter
 TARGET_STATUSES = {"OUTOFORDER", "UNDER_REPAIR", "UNAVAILABLE"}
 
 US_ZIP_RANGES = {
+    "CA": (90000, 96199),
+    "CT": (6000, 6999),
+    "ME": (3900, 4999),
     "MA": (1000, 2799),
+    "NH": (3000, 3899),
     "NJ": (7000, 8999),
     "NY": (10000, 14999),
+    "PA": (15000, 19699),
+    "RI": (2800, 2999),
+    "VT": (5000, 5999),
 }
 
 STATUS_LABELS = {
@@ -210,6 +217,14 @@ def summarize_status(counter: Counter[str]) -> str:
     return ", ".join(pieces)
 
 
+def network_tier(network_name: str) -> str:
+    if not network_name:
+        return "Verify network before pitch"
+    if "chargepoint" in network_name.lower():
+        return "ChargePoint - rip-and-replace"
+    return "Non-ChargePoint - takeover candidate"
+
+
 def score_location(rows: list[dict[str, str]]) -> RankedLocation:
     sample = rows[0]
     statuses = Counter(norm_status(r.get("status")) for r in rows)
@@ -218,6 +233,13 @@ def score_location(rows: list[dict[str, str]]) -> RankedLocation:
     affected_stations = len({r.get("station_id") for r in target_rows if r.get("station_id")})
     max_kw = max([clean_float(r.get("kilowatts")) for r in target_rows] or [0.0])
     connectors = sorted({r.get("connector", "").strip() for r in target_rows if r.get("connector", "").strip()})
+    network_names = [
+        r.get("network_name") or r.get("majority_network_name") or ""
+        for r in target_rows
+    ]
+    network_name_counts = Counter(name for name in network_names if name)
+    primary_network = network_name_counts.most_common(1)[0][0] if network_name_counts else ""
+    takeover_tier = network_tier(primary_network)
 
     category, keyword_hits = categorize(sample.get("name", ""), sample.get("address", ""))
     customer_count = INDUSTRY_CUSTOMER_COUNTS.get(category, 0)
@@ -258,6 +280,12 @@ def score_location(rows: list[dict[str, str]]) -> RankedLocation:
         reasons.append(f"{category} match, but limited existing-customer proof")
     else:
         reasons.append("needs manual industry review")
+    if takeover_tier.startswith("Non-ChargePoint"):
+        reasons.append("network is a software takeover candidate")
+    elif takeover_tier.startswith("ChargePoint"):
+        reasons.append("ChargePoint means rip-and-replace pitch")
+    else:
+        reasons.append("verify network before takeover pitch")
 
     city, zip_code = parse_city_zip(sample.get("address", ""))
     row = {
@@ -276,6 +304,8 @@ def score_location(rows: list[dict[str, str]]) -> RankedLocation:
         "Affected Stations": affected_stations,
         "Max kW": max_kw,
         "Connector Types": ", ".join(connectors),
+        "Network": primary_network,
+        "OCPP Pitch Tier": takeover_tier,
         "ICP Segment": category,
         "ICP Customer Count": customer_count,
         "Matched Keywords": keyword_hits,

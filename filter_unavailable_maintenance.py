@@ -8,7 +8,7 @@ import csv
 from collections import Counter
 from pathlib import Path
 
-TARGET_STATUSES = {"OUTOFORDER", "UNDER_REPAIR"}
+TARGET_STATUSES = {"OUTOFORDER", "UNDER_REPAIR", "UNAVAILABLE"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,4 +41,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
